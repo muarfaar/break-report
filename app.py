@@ -27,7 +27,7 @@ if uploaded_file is not None:
         except:
             return 0
 
-    # Process - logic still uses IB/OB internally but doesn't show it
+    # Process break logic
     df['Department'] = np.where(
         df['1st Break Status'].str.contains('Combined', na=False), 'IB', 'OB'
     )
@@ -36,19 +36,26 @@ if uploaded_file is not None:
         df['1st Break (min)'].fillna(0),
         df['1st Break (min)'].fillna(0) + df['2nd Break (min)'].fillna(0)
     )
-    df['Break Flag'] = np.where(
-        df['Total Break (min)'] >= 66, 'Excess Break',
-        np.where(df['Total Break (min)'] <= 54, 'Less Break', 'OK')
+
+    # Separate missed punch (total = 0) from break compliance flags
+    missed = df[df['Total Break (min)'] == 0][['Employee ID', 'Employee Name', 'Total Break (min)']].sort_values('Employee Name')
+
+    # Only flag Excess/Less for employees who actually took breaks
+    df_with_breaks = df[df['Total Break (min)'] > 0].copy()
+    df_with_breaks['Break Flag'] = np.where(
+        df_with_breaks['Total Break (min)'] >= 66, 'Excess Break',
+        np.where(df_with_breaks['Total Break (min)'] <= 54, 'Less Break', 'OK')
     )
 
-    excess = df[df['Break Flag']=='Excess Break'][['Employee ID','Employee Name','Total Break (min)']].sort_values('Total Break (min)', ascending=False)
-    less = df[df['Break Flag']=='Less Break'][['Employee ID','Employee Name','Total Break (min)']].sort_values('Total Break (min)')
+    excess = df_with_breaks[df_with_breaks['Break Flag']=='Excess Break'][['Employee ID','Employee Name','Total Break (min)']].sort_values('Total Break (min)', ascending=False)
+    less = df_with_breaks[df_with_breaks['Break Flag']=='Less Break'][['Employee ID','Employee Name','Total Break (min)']].sort_values('Total Break (min)')
 
     # Show results
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Exceptions", len(excess) + len(less))
     col2.metric("Excess (≥66 min)", len(excess))
     col3.metric("Less (≤54 min)", len(less))
+    col4.metric("Missed Punch", len(missed))
 
     st.markdown("---")
 
@@ -68,6 +75,14 @@ if uploaded_file is not None:
         display_less.columns = ['Employee ID', 'Employee Name', 'Break (min)']
         st.dataframe(display_less, use_container_width=True)
 
+    st.markdown("### ⚫ Missed Break Punch (0 min)")
+    if len(missed) == 0:
+        st.info("No exceptions found ✅")
+    else:
+        display_missed = missed.copy().reset_index(drop=True)
+        display_missed.columns = ['Employee ID', 'Employee Name', 'Break (min)']
+        st.dataframe(display_missed, use_container_width=True)
+
     st.markdown("---")
 
     # Generate Excel
@@ -81,10 +96,12 @@ if uploaded_file is not None:
         teal = '00BCD4'
         coral = 'FF6B6B'
         sunset = 'FFA726'
+        charcoal = '424242'
         snow = 'FAFAFA'
         ice_blue = 'E0F7FA'
         light_coral = 'FFEBEE'
         light_sunset = 'FFF3E0'
+        light_charcoal = 'F5F5F5'
         white = 'FFFFFF'
         dark_text = '212121'
 
@@ -212,6 +229,42 @@ if uploaded_file is not None:
                 ws.cell(row=row, column=3, value=safe_int(emp['Total Break (min)'])).font = Font(name='Calibri', size=9, bold=True, color=sunset)
                 row += 1
 
+        ws.row_dimensions[row].height = 8
+        row += 1
+
+        # Missed Break Punch table (separate section)
+        ws.merge_cells(f'A{row}:C{row}')
+        ws[f'A{row}'] = "MISSED BREAK PUNCH  0 min"
+        ws[f'A{row}'].font = Font(name='Calibri', size=10, bold=True, color=white)
+        ws[f'A{row}'].fill = PatternFill(start_color=charcoal, end_color=charcoal, fill_type='solid')
+        ws[f'A{row}'].alignment = Alignment(vertical='center')
+        for c in range(1, 4):
+            ws.cell(row=row, column=c).fill = PatternFill(start_color=charcoal, end_color=charcoal, fill_type='solid')
+        ws.row_dimensions[row].height = 20
+
+        row += 1
+        for col, header in enumerate(['Employee ID', 'Name', 'Min'], 1):
+            cell = ws.cell(row=row, column=col, value=header)
+            cell.font = Font(name='Calibri', size=8, bold=True, color=squid_ink)
+            cell.fill = PatternFill(start_color=light_charcoal, end_color=light_charcoal, fill_type='solid')
+        ws.row_dimensions[row].height = 16
+
+        row += 1
+        if len(missed) == 0:
+            ws[f'A{row}'] = "No exceptions"
+            ws[f'A{row}'].font = Font(name='Calibri', size=9, italic=True, color='AAAAAA')
+            row += 1
+        else:
+            for i, (_, emp) in enumerate(missed.iterrows()):
+                ws.row_dimensions[row].height = 17
+                if i % 2 == 0:
+                    for c in range(1, 4):
+                        ws.cell(row=row, column=c).fill = PatternFill(start_color=light_charcoal, end_color=light_charcoal, fill_type='solid')
+                ws.cell(row=row, column=1, value=safe_int(emp['Employee ID'])).font = Font(name='Calibri', size=9, color=dark_text)
+                ws.cell(row=row, column=2, value=str(emp['Employee Name'])).font = Font(name='Calibri', size=9, color=dark_text)
+                ws.cell(row=row, column=3, value=safe_int(emp['Total Break (min)'])).font = Font(name='Calibri', size=9, bold=True, color=charcoal)
+                row += 1
+
         for c in range(1, 4):
             ws.cell(row=row, column=c).border = Border(top=Side(style='medium', color=teal))
 
@@ -236,8 +289,7 @@ else:
     st.markdown("")
     st.markdown("---")
     st.markdown("**Criteria:**")
-    st.markdown("- **Break:** IB = 1 break (Combined) | OB = 2 breaks")
     st.markdown("- **Excess** = ≥66 min | **Less** = ≤54 min")
-    st.markdown("- **Shift:** DXB3 | 08:00 - 18:00")
+
 
 
