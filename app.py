@@ -43,8 +43,8 @@ if uploaded_file is not None:
     # Only flag Excess/Less for employees who actually took breaks
     df_with_breaks = df[df['Total Break (min)'] > 0].copy()
     df_with_breaks['Break Flag'] = np.where(
-        df_with_breaks['Total Break (min)'] >= 66, 'Excess Break',
-        np.where(df_with_breaks['Total Break (min)'] <= 54, 'Less Break', 'OK')
+        df_with_breaks['Total Break (min)'] >= 65, 'Excess Break',
+        np.where(df_with_breaks['Total Break (min)'] <= 55, 'Less Break', 'OK')
     )
 
     excess = df_with_breaks[df_with_breaks['Break Flag']=='Excess Break'][['Employee ID','Employee Name','Total Break (min)']].sort_values('Total Break (min)', ascending=False)
@@ -53,13 +53,13 @@ if uploaded_file is not None:
     # Show results
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Exceptions", len(excess) + len(less))
-    col2.metric("Excess (≥66 min)", len(excess))
-    col3.metric("Less (≤54 min)", len(less))
+    col2.metric("Excess (≥65 min)", len(excess))
+    col3.metric("Less (≤55 min)", len(less))
     col4.metric("Missed Punch", len(missed))
 
     st.markdown("---")
 
-    st.markdown("### 🔴 Excess Break (≥66 min)")
+    st.markdown("### 🔴 Excess Break (≥65 min)")
     if len(excess) == 0:
         st.info("No exceptions found ✅")
     else:
@@ -67,7 +67,7 @@ if uploaded_file is not None:
         display_excess.columns = ['Employee ID', 'Employee Name', 'Break (min)']
         st.dataframe(display_excess, use_container_width=True)
 
-    st.markdown("### 🟠 Less Break (≤54 min)")
+    st.markdown("### 🟠 Less Break (≤55 min)")
     if len(less) == 0:
         st.info("No exceptions found ✅")
     else:
@@ -162,7 +162,7 @@ if uploaded_file is not None:
         # Excess table
         row = 8
         ws.merge_cells(f'A{row}:C{row}')
-        ws[f'A{row}'] = "EXCESS BREAK  >=66 min"
+        ws[f'A{row}'] = "EXCESS BREAK  >=65 min"
         ws[f'A{row}'].font = Font(name='Calibri', size=10, bold=True, color=white)
         ws[f'A{row}'].fill = PatternFill(start_color=coral, end_color=coral, fill_type='solid')
         ws[f'A{row}'].alignment = Alignment(vertical='center')
@@ -198,7 +198,7 @@ if uploaded_file is not None:
 
         # Less table
         ws.merge_cells(f'A{row}:C{row}')
-        ws[f'A{row}'] = "LESS BREAK  <=54 min"
+        ws[f'A{row}'] = "LESS BREAK  <=55 min"
         ws[f'A{row}'].font = Font(name='Calibri', size=10, bold=True, color=white)
         ws[f'A{row}'].fill = PatternFill(start_color=sunset, end_color=sunset, fill_type='solid')
         ws[f'A{row}'].alignment = Alignment(vertical='center')
@@ -232,7 +232,7 @@ if uploaded_file is not None:
         ws.row_dimensions[row].height = 8
         row += 1
 
-        # Missed Break Punch table (separate section)
+        # Missed Break Punch table
         ws.merge_cells(f'A{row}:C{row}')
         ws[f'A{row}'] = "MISSED BREAK PUNCH  0 min"
         ws[f'A{row}'].font = Font(name='Calibri', size=10, bold=True, color=white)
@@ -289,7 +289,5 @@ else:
     st.markdown("")
     st.markdown("---")
     st.markdown("**Criteria:**")
-    st.markdown("- **Excess** = ≥66 min | **Less** = ≤54 min")
-
-
+    st.markdown("- **Excess** = ≥65 min | **Less** = ≤55 min")
 
