@@ -1,5 +1,4 @@
 
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -500,7 +499,5 @@ else:
     st.markdown("---")
     st.markdown("**Criteria:**")
     st.markdown("- **Excess** = ≥65 min | **Less** = ≤55 min")
-    st.markdown("- **Departments:** Inbound, Outbound, ICQA, Warehouse Deals, HR, IT, L&D, RME, Safety, Procurement")
     st.markdown("- **Repeat offenders** highlighted in red with count")
-    st.markdown("- **Shift:** DXB3 | 08:00 - 18:00")
 
