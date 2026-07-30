@@ -221,10 +221,8 @@ def detect_format(df):
 
 def process_fclm(df):
     """Process FCLM raw punch data into break summary per employee."""
-    # Clean column names
     df.columns = df.columns.str.strip()
 
-    # Parse punch time - handle various formats
     def parse_time(val):
         val = str(val).replace('\u202f', ' ').replace('\xa0', ' ').strip()
         for fmt in ['%m/%d/%y, %I:%M %p', '%m/%d/%Y, %I:%M %p', '%m/%d/%y %I:%M %p', '%m/%d/%Y %I:%M %p', '%Y-%m-%d %H:%M:%S']:
@@ -247,7 +245,6 @@ def process_fclm(df):
         emp_name = punches['Employee Name'].iloc[0]
         manager = punches['Manager'].iloc[0] if 'Manager' in punches.columns else ''
 
-        # Calculate breaks: Out → In gaps (skip first In and last Out)
         total_break_mins = 0
         break_count = 0
 
@@ -256,24 +253,15 @@ def process_fclm(df):
                 out_time = punches.loc[punches.index[i], 'Punch DateTime']
                 in_time = punches.loc[punches.index[i+1], 'Punch DateTime']
                 gap_mins = (in_time - out_time).total_seconds() / 60
-                # Only count as break if gap is between 5 and 120 minutes
                 if 5 <= gap_mins <= 120:
                     total_break_mins += gap_mins
                     break_count += 1
-
-        # Determine break type
-        if break_count == 1 and total_break_mins >= 45:
-            break_type = 'IB'  # Combined single break
-        else:
-            break_type = 'OB'  # Multiple breaks
 
         results.append({
             'Employee ID': str(int(float(emp_id))),
             'Employee Name': emp_name,
             'Manager': manager,
-            'Break Type': break_type,
             'Total Break (min)': round(total_break_mins),
-            'Break Count': break_count,
         })
 
     return pd.DataFrame(results)
@@ -289,7 +277,7 @@ def process_dashboard(df):
         df['1st Break (min)'].fillna(0),
         df['1st Break (min)'].fillna(0) + df['2nd Break (min)'].fillna(0)
     )
-    return df[['Employee ID', 'Employee Name', 'Manager', 'Break Type', 'Total Break (min)']].copy()
+    return df[['Employee ID', 'Employee Name', 'Manager', 'Total Break (min)']].copy()
 
 # === HISTORY UPLOAD (optional) ===
 history_file = st.file_uploader("📋 Upload History (optional)", type=['csv'], help="Previous history.csv for repeat tracking")
@@ -309,7 +297,6 @@ uploaded_file = st.file_uploader("📄 Upload Attendance CSV", type=['csv'], hel
 if uploaded_file is not None:
     raw_df = pd.read_csv(uploaded_file)
 
-    # Detect format
     fmt = detect_format(raw_df)
 
     if fmt == 'FCLM':
@@ -330,10 +317,7 @@ if uploaded_file is not None:
     df['Employee ID'] = df['Employee ID'].apply(lambda x: str(safe_int(x)))
     df['Dept'] = df['Employee ID'].apply(lambda x: DEPT_MAP.get(x, 'Unknown'))
 
-    # Separate missed punch
-    missed = df[df['Total Break (min)'] == 0][['Employee ID', 'Employee Name', 'Dept', 'Total Break (min)']].sort_values('Employee Name')
-
-    # Flag Excess/Less
+    # Flag Excess/Less (only employees with break > 0)
     df_with_breaks = df[df['Total Break (min)'] > 0].copy()
     df_with_breaks['Break Flag'] = np.where(
         df_with_breaks['Total Break (min)'] >= 65, 'Excess Break',
@@ -361,14 +345,12 @@ if uploaded_file is not None:
 
     excess_display = add_repeat_info(excess, 'Excess')
     less_display = add_repeat_info(less, 'Less')
-    missed_display = add_repeat_info(missed, 'Missed')
 
     # Show metrics
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Total Exceptions", len(excess) + len(less))
     col2.metric("Excess (≥65 min)", len(excess))
     col3.metric("Less (≤55 min)", len(less))
-    col4.metric("Missed Punch", len(missed))
 
     st.markdown("---")
 
@@ -385,7 +367,6 @@ if uploaded_file is not None:
 
     show_table("Excess Break (≥65 min)", "🔴", excess_display)
     show_table("Less Break (≤55 min)", "🟠", less_display)
-    show_table("Missed Break Punch (0 min)", "⚫", missed_display)
 
     st.markdown("---")
 
@@ -395,8 +376,6 @@ if uploaded_file is not None:
         new_records.append({'Employee ID': str(safe_int(emp['Employee ID'])), 'Employee Name': str(emp['Employee Name']), 'Department': str(emp['Dept']), 'Date': today_str, 'Flag': 'Excess'})
     for _, emp in less.iterrows():
         new_records.append({'Employee ID': str(safe_int(emp['Employee ID'])), 'Employee Name': str(emp['Employee Name']), 'Department': str(emp['Dept']), 'Date': today_str, 'Flag': 'Less'})
-    for _, emp in missed.iterrows():
-        new_records.append({'Employee ID': str(safe_int(emp['Employee ID'])), 'Employee Name': str(emp['Employee Name']), 'Department': str(emp['Dept']), 'Date': today_str, 'Flag': 'Missed'})
 
     if not history.empty:
         updated_history = history[history['Date'] != today_str].copy()
@@ -415,12 +394,10 @@ if uploaded_file is not None:
         teal = '00BCD4'
         coral = 'FF6B6B'
         sunset = 'FFA726'
-        charcoal = '424242'
         snow = 'FAFAFA'
         ice_blue = 'E0F7FA'
         light_coral = 'FFEBEE'
         light_sunset = 'FFF3E0'
-        light_charcoal = 'F5F5F5'
         white = 'FFFFFF'
         dark_text = '212121'
         repeat_red = 'D32F2F'
@@ -459,17 +436,17 @@ if uploaded_file is not None:
             (len(excess) + len(less), squid_ink, ice_blue),
             (len(excess), coral, light_coral),
             (len(less), sunset, light_sunset),
-            (len(missed), charcoal, light_charcoal),
         ]
         for i, (val, font_color, bg_color) in enumerate(metrics, 1):
             cell = ws.cell(row=5, column=i, value=val)
             cell.font = Font(name='Calibri', size=14 if i > 1 else 18, bold=True, color=font_color)
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type='solid')
-        ws.cell(row=5, column=5).fill = PatternFill(start_color=snow, end_color=snow, fill_type='solid')
+        for c in range(4, 6):
+            ws.cell(row=5, column=c).fill = PatternFill(start_color=snow, end_color=snow, fill_type='solid')
 
         ws.row_dimensions[6].height = 14
-        labels = [("total", '888888'), ("excess", coral), ("less", sunset), ("missed", charcoal)]
+        labels = [("total", '888888'), ("excess", coral), ("less", sunset)]
         for i, (label, color) in enumerate(labels, 1):
             cell = ws.cell(row=6, column=i, value=label)
             cell.font = Font(name='Calibri', size=8, color=color)
@@ -531,7 +508,6 @@ if uploaded_file is not None:
         row = 8
         row = write_table(ws, row, "EXCESS BREAK  >=65 min", coral, light_coral, excess, 'Excess')
         row = write_table(ws, row, "LESS BREAK  <=55 min", sunset, light_sunset, less, 'Less')
-        row = write_table(ws, row, "MISSED BREAK PUNCH  0 min", charcoal, light_charcoal, missed, 'Missed')
 
         for c in range(1, 6):
             ws.cell(row=row, column=c).border = Border(top=Side(style='medium', color=teal))
@@ -582,6 +558,5 @@ else:
     st.markdown("**Criteria:**")
     st.markdown("- **Excess** = ≥65 min | **Less** = ≤55 min")
     st.markdown("- **Repeat offenders** highlighted in red with count")
-
 
 
