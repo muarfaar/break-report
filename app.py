@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -15,7 +15,6 @@ st.markdown("---")
 
 # === DEPARTMENT MAPPING (Employee ID -> Department) ===
 # Last updated: 27 July 2026 | Total: 711 employees
-# To update: edit this dictionary when people join/leave
 DEPT_MAP = {
     '205247342': 'HR', '107322190': 'HR', '203826463': 'HR', '200519423': 'HR',
     '205930604': 'HR', '207302255': 'HR', '206018669': 'HR', '205181646': 'HR',
@@ -201,9 +200,96 @@ DEPT_MAP = {
     '205252531': 'Warehouse Deals', '113142038': 'Warehouse Deals', '205252362': 'Warehouse Deals',
 }
 
-def get_department(emp_id):
-    """Lookup department by Employee ID."""
-    return DEPT_MAP.get(str(int(float(emp_id))) if emp_id else '', 'Unknown')
+def safe_int(val):
+    try:
+        if pd.notna(val):
+            return int(float(val))
+        return 0
+    except:
+        return 0
+
+# === FORMAT DETECTION & PROCESSING ===
+def detect_format(df):
+    """Detect if CSV is Dashboard format or FCLM raw format."""
+    cols = [c.lower().strip() for c in df.columns]
+    if 'punch type' in cols and 'punch time' in cols:
+        return 'FCLM'
+    elif '1st break (min)' in cols or '1st break status' in cols:
+        return 'DASHBOARD'
+    else:
+        return 'UNKNOWN'
+
+def process_fclm(df):
+    """Process FCLM raw punch data into break summary per employee."""
+    # Clean column names
+    df.columns = df.columns.str.strip()
+
+    # Parse punch time - handle various formats
+    def parse_time(val):
+        val = str(val).replace('\u202f', ' ').replace('\xa0', ' ').strip()
+        for fmt in ['%m/%d/%y, %I:%M %p', '%m/%d/%Y, %I:%M %p', '%m/%d/%y %I:%M %p', '%m/%d/%Y %I:%M %p', '%Y-%m-%d %H:%M:%S']:
+            try:
+                return pd.to_datetime(val, format=fmt)
+            except:
+                continue
+        try:
+            return pd.to_datetime(val)
+        except:
+            return pd.NaT
+
+    df['Punch DateTime'] = df['Punch Time'].apply(parse_time)
+    df = df.dropna(subset=['Punch DateTime'])
+    df = df.sort_values(['Employee ID', 'Punch DateTime'])
+
+    results = []
+    for emp_id, group in df.groupby('Employee ID'):
+        punches = group.sort_values('Punch DateTime').reset_index(drop=True)
+        emp_name = punches['Employee Name'].iloc[0]
+        manager = punches['Manager'].iloc[0] if 'Manager' in punches.columns else ''
+
+        # Calculate breaks: Out → In gaps (skip first In and last Out)
+        total_break_mins = 0
+        break_count = 0
+
+        for i in range(len(punches) - 1):
+            if punches.loc[punches.index[i], 'Punch Type'] == 'Out' and punches.loc[punches.index[i+1], 'Punch Type'] == 'In':
+                out_time = punches.loc[punches.index[i], 'Punch DateTime']
+                in_time = punches.loc[punches.index[i+1], 'Punch DateTime']
+                gap_mins = (in_time - out_time).total_seconds() / 60
+                # Only count as break if gap is between 5 and 120 minutes
+                if 5 <= gap_mins <= 120:
+                    total_break_mins += gap_mins
+                    break_count += 1
+
+        # Determine break type
+        if break_count == 1 and total_break_mins >= 45:
+            break_type = 'IB'  # Combined single break
+        else:
+            break_type = 'OB'  # Multiple breaks
+
+        results.append({
+            'Employee ID': str(int(float(emp_id))),
+            'Employee Name': emp_name,
+            'Manager': manager,
+            'Break Type': break_type,
+            'Total Break (min)': round(total_break_mins),
+            'Break Count': break_count,
+        })
+
+    return pd.DataFrame(results)
+
+def process_dashboard(df):
+    """Process Dashboard CSV format (pre-calculated breaks)."""
+    df['Employee ID'] = df['Employee ID'].astype(str)
+    df['Break Type'] = np.where(
+        df['1st Break Status'].str.contains('Combined', na=False), 'IB', 'OB'
+    )
+    df['Total Break (min)'] = np.where(
+        df['Break Type'] == 'IB',
+        df['1st Break (min)'].fillna(0),
+        df['1st Break (min)'].fillna(0) + df['2nd Break (min)'].fillna(0)
+    )
+    return df[['Employee ID', 'Employee Name', 'Manager', 'Break Type', 'Total Break (min)']].copy()
 
 # === HISTORY UPLOAD (optional) ===
 history_file = st.file_uploader("📋 Upload History (optional)", type=['csv'], help="Previous history.csv for repeat tracking")
@@ -221,32 +307,28 @@ if history_file is not None:
 uploaded_file = st.file_uploader("📄 Upload Attendance CSV", type=['csv'], help="Required — your daily attendance export")
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.success(f"✅ Loaded {len(df)} employees!")
+    raw_df = pd.read_csv(uploaded_file)
+
+    # Detect format
+    fmt = detect_format(raw_df)
+
+    if fmt == 'FCLM':
+        st.info("📋 Detected: **FCLM Raw Punch Data** — calculating breaks from timestamps...")
+        df = process_fclm(raw_df)
+    elif fmt == 'DASHBOARD':
+        st.info("📋 Detected: **Dashboard Export** — using pre-calculated break data...")
+        df = process_dashboard(raw_df)
+    else:
+        st.error("❌ Unrecognized CSV format. Please upload either the Dashboard export or FCLM punch data.")
+        st.stop()
+
+    st.success(f"✅ Processed {len(df)} employees!")
 
     today_str = date.today().strftime('%Y-%m-%d')
 
-    def safe_int(val):
-        try:
-            if pd.notna(val):
-                return int(float(val))
-            return 0
-        except:
-            return 0
-
     # Add department from hardcoded map
-    df['Employee ID'] = df['Employee ID'].astype(str)
-    df['Dept'] = df['Employee ID'].apply(lambda x: DEPT_MAP.get(str(safe_int(x)), 'Unknown'))
-
-    # Process break logic
-    df['Break Type'] = np.where(
-        df['1st Break Status'].str.contains('Combined', na=False), 'IB', 'OB'
-    )
-    df['Total Break (min)'] = np.where(
-        df['Break Type'] == 'IB',
-        df['1st Break (min)'].fillna(0),
-        df['1st Break (min)'].fillna(0) + df['2nd Break (min)'].fillna(0)
-    )
+    df['Employee ID'] = df['Employee ID'].apply(lambda x: str(safe_int(x)))
+    df['Dept'] = df['Employee ID'].apply(lambda x: DEPT_MAP.get(x, 'Unknown'))
 
     # Separate missed punch
     missed = df[df['Total Break (min)'] == 0][['Employee ID', 'Employee Name', 'Dept', 'Total Break (min)']].sort_values('Employee Name')
@@ -493,11 +575,13 @@ if uploaded_file is not None:
 else:
     st.markdown("### 📋 How to use:")
     st.markdown("1. *(Optional)* Upload previous `history.csv` for repeat tracking")
-    st.markdown("2. Upload your **attendance CSV**")
+    st.markdown("2. Upload your **attendance CSV** (supports both Dashboard export & FCLM raw data)")
     st.markdown("3. View results + download report & updated history!")
     st.markdown("")
     st.markdown("---")
     st.markdown("**Criteria:**")
     st.markdown("- **Excess** = ≥65 min | **Less** = ≤55 min")
     st.markdown("- **Repeat offenders** highlighted in red with count")
+
+
 
