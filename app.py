@@ -79,8 +79,46 @@ DEPT_MAP = {
     206889460: "Outbound", 206906220: "Inbound", 206910482: "Inbound"
 }
 
+# --- Colors (matching desktop report) ---
+SQUID_INK = '232F3E'
+TEAL = '00BCD4'
+CORAL = 'FF6B6B'
+SUNSET = 'FFA726'
+CHARCOAL = '424242'
+SNOW = 'FAFAFA'
+ICE_BLUE = 'E0F7FA'
+LIGHT_CORAL = 'FFEBEE'
+LIGHT_SUNSET = 'FFF3E0'
+WHITE = 'FFFFFF'
+DARK_TEXT = '212121'
+REPEAT_RED = 'D32F2F'
+REPEAT_BG = 'FFCDD2'
+
 # --- Helper: Extract date from filename ---
 def extract_date_from_filename(filename):
+    match = re.search(r'(\d{8})\d{4}-\d{12}', filename)
+    if match:
+        date_str = match.group(1)
+        dt = datetime.strptime(date_str, '%Y%m%d')
+        return dt.strftime('%A, %d %B %Y')
+    
+    match = re.search(r'(\d{4})(\d{2})(\d{2})', filename)
+    if match:
+        year, month, day = match.groups()
+        dt = datetime(int(year), int(month), int(day))
+        return dt.strftime('%A, %d %B %Y')
+    
+    match = re.search(r'(\d{4})-(\d{2})-(\d{2})', filename)
+    if match:
+        year, month, day = match.groups()
+        dt = datetime(int(year), int(month), int(day))
+        return dt.strftime('%A, %d %B %Y')
+    
+    yesterday = date.today() - timedelta(days=1)
+    return yesterday.strftime('%A, %d %B %Y')
+
+# --- Helper: Extract short date for history ---
+def extract_short_date(filename):
     match = re.search(r'(\d{8})\d{4}-\d{12}', filename)
     if match:
         date_str = match.group(1)
@@ -133,6 +171,7 @@ if uploaded_file:
     
     # Extract date from filename
     report_date = extract_date_from_filename(filename)
+    short_date = extract_short_date(filename)
     
     # Auto-detect shift with override option
     default_shift = detect_shift_from_filename(filename)
@@ -240,7 +279,7 @@ if uploaded_file:
         new_history_records.append({
             'Employee ID': row['Employee ID'],
             'Employee Name': row['Employee Name'],
-            'Date': report_date,
+            'Date': short_date,
             'Shift': shift_type,
             'Flag': 'Excess'
         })
@@ -248,7 +287,7 @@ if uploaded_file:
         new_history_records.append({
             'Employee ID': row['Employee ID'],
             'Employee Name': row['Employee Name'],
-            'Date': report_date,
+            'Date': short_date,
             'Shift': shift_type,
             'Flag': 'Less'
         })
@@ -256,135 +295,185 @@ if uploaded_file:
     new_history_df = pd.DataFrame(new_history_records)
     updated_history = pd.concat([history_df, new_history_df], ignore_index=True)
     
-    # --- Generate Excel Report ---
+    # --- Generate Excel Report (Matching Desktop Style) ---
     def generate_excel(excess, less, report_date, shift_type):
         wb = Workbook()
         ws = wb.active
         ws.title = "Break Compliance"
+        ws.sheet_view.showGridLines = False
         
-        # Styles
-        header_font = Font(name='Calibri', bold=True, size=14, color='FFFFFF')
-        header_fill = PatternFill(start_color='1B2A3B', end_color='1B2A3B', fill_type='solid')
-        excess_fill = PatternFill(start_color='FFCDD2', end_color='FFCDD2', fill_type='solid')
-        less_fill = PatternFill(start_color='FFF9C4', end_color='FFF9C4', fill_type='solid')
-        repeat_fill = PatternFill(start_color='FF8A80', end_color='FF8A80', fill_type='solid')
-        repeat_font = Font(name='Calibri', bold=True, size=11, color='B71C1C')
-        col_header_font = Font(name='Calibri', bold=True, size=11)
-        normal_font = Font(name='Calibri', size=11)
-        thin_border = Border(
-            left=Side(style='thin'), right=Side(style='thin'),
-            top=Side(style='thin'), bottom=Side(style='thin')
-        )
-        
-        # Title Banner
-        ws.merge_cells('A1:E1')
-        ws['A1'] = 'BREAK COMPLIANCE REPORT'
-        ws['A1'].font = header_font
-        ws['A1'].fill = header_fill
-        ws['A1'].alignment = Alignment(horizontal='center')
-        for col_idx in range(1, 6):
-            ws.cell(row=1, column=col_idx).fill = header_fill
-        
-        # Date & Shift
-        ws.merge_cells('A2:E2')
-        ws['A2'] = f'{report_date} | {shift_type}'
-        ws['A2'].font = Font(name='Calibri', bold=True, size=11)
-        ws['A2'].alignment = Alignment(horizontal='center')
-        
-        # Metrics
-        ws['A3'] = f'Total: {len(excess) + len(less)}'
-        ws['B3'] = f'Excess: {len(excess)}'
-        ws['C3'] = f'Less: {len(less)}'
-        ws['A3'].font = Font(name='Calibri', bold=True, size=11)
-        ws['B3'].font = Font(name='Calibri', bold=True, size=11, color='B71C1C')
-        ws['C3'].font = Font(name='Calibri', bold=True, size=11, color='F57F17')
-        
-        row = 5
-        
-        # --- EXCESS SECTION ---
-        if len(excess) > 0:
-            ws.merge_cells(f'A{row}:E{row}')
-            ws[f'A{row}'] = 'EXCESS BREAK (≥65 min)'
-            ws[f'A{row}'].font = Font(name='Calibri', bold=True, size=12, color='B71C1C')
-            row += 1
-            
-            headers = ['Employee ID', 'Name', 'Department', 'Mins', 'Repeat']
-            for col_idx, header in enumerate(headers, 1):
-                cell = ws.cell(row=row, column=col_idx, value=header)
-                cell.font = col_header_font
-                cell.border = thin_border
-                cell.fill = PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')
-            row += 1
-            
-            for _, r in excess.iterrows():
-                is_repeat = r['Repeat'] != ""
-                
-                ws.cell(row=row, column=1, value=r['Employee ID']).border = thin_border
-                ws.cell(row=row, column=2, value=r['Employee Name']).border = thin_border
-                ws.cell(row=row, column=3, value=r['Department']).border = thin_border
-                ws.cell(row=row, column=4, value=r['Break (min)']).border = thin_border
-                ws.cell(row=row, column=5, value=r['Repeat']).border = thin_border
-                
-                if is_repeat:
-                    # Red highlight for repeat offenders
-                    for c in range(1, 6):
-                        ws.cell(row=row, column=c).fill = repeat_fill
-                        ws.cell(row=row, column=c).font = Font(name='Calibri', bold=True, size=11)
-                    # Repeat column in dark red bold
-                    ws.cell(row=row, column=5).font = repeat_font
-                else:
-                    # Normal excess fill (light red)
-                    for c in range(1, 6):
-                        ws.cell(row=row, column=c).fill = excess_fill
-                        ws.cell(row=row, column=c).font = normal_font
-                row += 1
-        
-        row += 1
-        
-        # --- LESS SECTION ---
-        if len(less) > 0:
-            ws.merge_cells(f'A{row}:E{row}')
-            ws[f'A{row}'] = 'LESS BREAK (≤55 min)'
-            ws[f'A{row}'].font = Font(name='Calibri', bold=True, size=12, color='F57F17')
-            row += 1
-            
-            headers = ['Employee ID', 'Name', 'Department', 'Mins', 'Repeat']
-            for col_idx, header in enumerate(headers, 1):
-                cell = ws.cell(row=row, column=col_idx, value=header)
-                cell.font = col_header_font
-                cell.border = thin_border
-                cell.fill = PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')
-            row += 1
-            
-            for _, r in less.iterrows():
-                is_repeat = r['Repeat'] != ""
-                
-                ws.cell(row=row, column=1, value=r['Employee ID']).border = thin_border
-                ws.cell(row=row, column=2, value=r['Employee Name']).border = thin_border
-                ws.cell(row=row, column=3, value=r['Department']).border = thin_border
-                ws.cell(row=row, column=4, value=r['Break (min)']).border = thin_border
-                ws.cell(row=row, column=5, value=r['Repeat']).border = thin_border
-                
-                if is_repeat:
-                    # Red highlight for repeat offenders
-                    for c in range(1, 6):
-                        ws.cell(row=row, column=c).fill = repeat_fill
-                        ws.cell(row=row, column=c).font = Font(name='Calibri', bold=True, size=11)
-                    # Repeat column in dark red bold
-                    ws.cell(row=row, column=5).font = repeat_font
-                else:
-                    # Normal less fill (light yellow)
-                    for c in range(1, 6):
-                        ws.cell(row=row, column=c).fill = less_fill
-                        ws.cell(row=row, column=c).font = normal_font
-                row += 1
-        
-        # Fixed column widths
+        # Column widths
         ws.column_dimensions['A'].width = 14
-        ws.column_dimensions['B'].width = 30
-        ws.column_dimensions['C'].width = 14
+        ws.column_dimensions['B'].width = 28
+        ws.column_dimensions['C'].width = 12
         ws.column_dimensions['D'].width = 8
         ws.column_dimensions['E'].width = 10
+        
+        # === HEADER BANNER ===
+        for c in range(1, 6):
+            ws.cell(row=1, column=c).fill = PatternFill(start_color=SQUID_INK, end_color=SQUID_INK, fill_type='solid')
+        ws.row_dimensions[1].height = 10
+        
+        ws.row_dimensions[2].height = 35
+        ws.merge_cells('A2:E2')
+        ws['A2'] = "BREAK COMPLIANCE REPORT"
+        ws['A2'].font = Font(name='Calibri', size=16, bold=True, color=TEAL)
+        ws['A2'].fill = PatternFill(start_color=SQUID_INK, end_color=SQUID_INK, fill_type='solid')
+        ws['A2'].alignment = Alignment(vertical='center', horizontal='center')
+        for c in range(1, 6):
+            ws.cell(row=2, column=c).fill = PatternFill(start_color=SQUID_INK, end_color=SQUID_INK, fill_type='solid')
+        
+        # Teal accent line
+        ws.row_dimensions[3].height = 4
+        for c in range(1, 6):
+            ws.cell(row=3, column=c).fill = PatternFill(start_color=TEAL, end_color=TEAL, fill_type='solid')
+        
+        # Date row
+        ws.row_dimensions[4].height = 22
+        ws.merge_cells('A4:E4')
+        ws['A4'] = report_date
+        ws['A4'].font = Font(name='Calibri', size=10, color='666666')
+        ws['A4'].fill = PatternFill(start_color=SNOW, end_color=SNOW, fill_type='solid')
+        ws['A4'].alignment = Alignment(vertical='center', horizontal='center')
+        for c in range(1, 6):
+            ws.cell(row=4, column=c).fill = PatternFill(start_color=SNOW, end_color=SNOW, fill_type='solid')
+        
+        ws.row_dimensions[5].height = 8
+        
+        # === SHIFT HEADER ===
+        row = 6
+        shift_time = "08:00 - 18:00" if shift_type == "Day Shift" else "20:15 - 04:15"
+        ws.merge_cells(f'A{row}:E{row}')
+        ws[f'A{row}'] = f"{shift_type.upper()}  |  {shift_time}"
+        ws[f'A{row}'].font = Font(name='Calibri', size=12, bold=True, color=WHITE)
+        ws[f'A{row}'].fill = PatternFill(start_color=SQUID_INK, end_color=SQUID_INK, fill_type='solid')
+        ws[f'A{row}'].alignment = Alignment(vertical='center', horizontal='center')
+        for c in range(1, 6):
+            ws.cell(row=row, column=c).fill = PatternFill(start_color=SQUID_INK, end_color=SQUID_INK, fill_type='solid')
+        ws.row_dimensions[row].height = 25
+        row += 1
+        
+        # Metrics row
+        ws.row_dimensions[row].height = 24
+        total_exceptions = len(excess) + len(less)
+        ws[f'A{row}'] = f"Exceptions: {total_exceptions}"
+        ws[f'A{row}'].font = Font(name='Calibri', size=9, bold=True, color=SQUID_INK)
+        ws[f'A{row}'].fill = PatternFill(start_color=ICE_BLUE, end_color=ICE_BLUE, fill_type='solid')
+        ws[f'B{row}'] = f"Excess: {len(excess)}  |  Less: {len(less)}"
+        ws[f'B{row}'].font = Font(name='Calibri', size=9, color='666666')
+        ws[f'B{row}'].fill = PatternFill(start_color=ICE_BLUE, end_color=ICE_BLUE, fill_type='solid')
+        for c in range(3, 6):
+            ws.cell(row=row, column=c).fill = PatternFill(start_color=ICE_BLUE, end_color=ICE_BLUE, fill_type='solid')
+        row += 1
+        
+        # Spacer
+        ws.row_dimensions[row].height = 6
+        row += 1
+        
+        # === EXCESS TABLE ===
+        ws.merge_cells(f'A{row}:E{row}')
+        ws[f'A{row}'] = "EXCESS BREAK  ≥65 min"
+        ws[f'A{row}'].font = Font(name='Calibri', size=10, bold=True, color=WHITE)
+        ws[f'A{row}'].fill = PatternFill(start_color=CORAL, end_color=CORAL, fill_type='solid')
+        ws[f'A{row}'].alignment = Alignment(vertical='center')
+        for c in range(1, 6):
+            ws.cell(row=row, column=c).fill = PatternFill(start_color=CORAL, end_color=CORAL, fill_type='solid')
+        ws.row_dimensions[row].height = 20
+        row += 1
+        
+        # Column headers
+        headers = ['Employee ID', 'Name', 'Department', 'Mins', 'Repeat']
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=row, column=col_idx, value=header)
+            cell.font = Font(name='Calibri', size=8, bold=True, color=SQUID_INK)
+            cell.fill = PatternFill(start_color=LIGHT_CORAL, end_color=LIGHT_CORAL, fill_type='solid')
+        ws.row_dimensions[row].height = 16
+        row += 1
+        
+        if len(excess) == 0:
+            ws[f'A{row}'] = "No exceptions"
+            ws[f'A{row}'].font = Font(name='Calibri', size=9, italic=True, color='AAAAAA')
+            row += 1
+        else:
+            for i, (_, r) in enumerate(excess.iterrows()):
+                ws.row_dimensions[row].height = 17
+                is_repeat = r['Repeat'] != ""
+                
+                if is_repeat:
+                    # Red background for repeat offenders
+                    for c in range(1, 6):
+                        ws.cell(row=row, column=c).fill = PatternFill(start_color=REPEAT_BG, end_color=REPEAT_BG, fill_type='solid')
+                elif i % 2 == 0:
+                    for c in range(1, 6):
+                        ws.cell(row=row, column=c).fill = PatternFill(start_color=LIGHT_CORAL, end_color=LIGHT_CORAL, fill_type='solid')
+                
+                ws.cell(row=row, column=1, value=r['Employee ID']).font = Font(name='Calibri', size=9, color=DARK_TEXT)
+                ws.cell(row=row, column=2, value=r['Employee Name']).font = Font(name='Calibri', size=9, color=DARK_TEXT)
+                ws.cell(row=row, column=3, value=r['Department']).font = Font(name='Calibri', size=9, color=DARK_TEXT)
+                ws.cell(row=row, column=4, value=r['Break (min)']).font = Font(name='Calibri', size=9, bold=True, color=CORAL)
+                
+                if is_repeat:
+                    ws.cell(row=row, column=5, value=r['Repeat']).font = Font(name='Calibri', size=9, bold=True, color=REPEAT_RED)
+                else:
+                    ws.cell(row=row, column=5, value="").font = Font(name='Calibri', size=9)
+                
+                row += 1
+        
+        # Spacer
+        ws.row_dimensions[row].height = 6
+        row += 1
+        
+        # === LESS TABLE ===
+        ws.merge_cells(f'A{row}:E{row}')
+        ws[f'A{row}'] = "LESS BREAK  ≤55 min"
+        ws[f'A{row}'].font = Font(name='Calibri', size=10, bold=True, color=WHITE)
+        ws[f'A{row}'].fill = PatternFill(start_color=SUNSET, end_color=SUNSET, fill_type='solid')
+        ws[f'A{row}'].alignment = Alignment(vertical='center')
+        for c in range(1, 6):
+            ws.cell(row=row, column=c).fill = PatternFill(start_color=SUNSET, end_color=SUNSET, fill_type='solid')
+        ws.row_dimensions[row].height = 20
+        row += 1
+        
+        # Column headers
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=row, column=col_idx, value=header)
+            cell.font = Font(name='Calibri', size=8, bold=True, color=SQUID_INK)
+            cell.fill = PatternFill(start_color=LIGHT_SUNSET, end_color=LIGHT_SUNSET, fill_type='solid')
+        ws.row_dimensions[row].height = 16
+        row += 1
+        
+        if len(less) == 0:
+            ws[f'A{row}'] = "No exceptions"
+            ws[f'A{row}'].font = Font(name='Calibri', size=9, italic=True, color='AAAAAA')
+            row += 1
+        else:
+            for i, (_, r) in enumerate(less.iterrows()):
+                ws.row_dimensions[row].height = 17
+                is_repeat = r['Repeat'] != ""
+                
+                if is_repeat:
+                    # Red background for repeat offenders
+                    for c in range(1, 6):
+                        ws.cell(row=row, column=c).fill = PatternFill(start_color=REPEAT_BG, end_color=REPEAT_BG, fill_type='solid')
+                elif i % 2 == 0:
+                    for c in range(1, 6):
+                        ws.cell(row=row, column=c).fill = PatternFill(start_color=LIGHT_SUNSET, end_color=LIGHT_SUNSET, fill_type='solid')
+                
+                ws.cell(row=row, column=1, value=r['Employee ID']).font = Font(name='Calibri', size=9, color=DARK_TEXT)
+                ws.cell(row=row, column=2, value=r['Employee Name']).font = Font(name='Calibri', size=9, color=DARK_TEXT)
+                ws.cell(row=row, column=3, value=r['Department']).font = Font(name='Calibri', size=9, color=DARK_TEXT)
+                ws.cell(row=row, column=4, value=r['Break (min)']).font = Font(name='Calibri', size=9, bold=True, color=SUNSET)
+                
+                if is_repeat:
+                    ws.cell(row=row, column=5, value=r['Repeat']).font = Font(name='Calibri', size=9, bold=True, color=REPEAT_RED)
+                else:
+                    ws.cell(row=row, column=5, value="").font = Font(name='Calibri', size=9)
+                
+                row += 1
+        
+        # Footer line
+        for c in range(1, 6):
+            ws.cell(row=row, column=c).border = Border(top=Side(style='medium', color=TEAL))
         
         buffer = BytesIO()
         wb.save(buffer)
@@ -402,7 +491,7 @@ if uploaded_file:
         st.download_button(
             label="📊 Excel Report",
             data=excel_buffer,
-            file_name=f"Break_Report_{report_date.replace('/', '-')}_{shift_type.replace(' ', '_')}.xlsx",
+            file_name=f"Break_Report_{short_date.replace('/', '-')}_{shift_type.replace(' ', '_')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.document"
         )
     
@@ -427,4 +516,5 @@ st.markdown("3. View results + download report & updated history!")
 st.markdown("### 📐 Criteria:")
 st.markdown("- **Excess** = ≥65 min | **Less** = ≤55 min")
 st.markdown("- Repeat offenders highlighted in red with count")
+
 
