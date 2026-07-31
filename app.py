@@ -81,11 +81,6 @@ DEPT_MAP = {
 
 # --- Helper: Extract date from filename ---
 def extract_date_from_filename(filename):
-    """
-    Extracts the shift date from FCLM filename format:
-    employeeAttendance-DXB3-202607290730-202607291830
-    Returns date string like '7/29/2026'
-    """
     match = re.search(r'(\d{8})\d{4}-\d{12}', filename)
     if match:
         date_str = match.group(1)
@@ -107,6 +102,18 @@ def extract_date_from_filename(filename):
     yesterday = date.today() - timedelta(days=1)
     return f"{yesterday.month}/{yesterday.day}/{yesterday.year}"
 
+# --- Helper: Auto-detect shift from filename ---
+def detect_shift_from_filename(filename):
+    match = re.search(r'\d{8}(\d{4})-\d{12}', filename)
+    if match:
+        start_time = match.group(1)
+        hour = int(start_time[:2])
+        if hour >= 14:
+            return 1  # Night Shift (index 1 in dropdown)
+        else:
+            return 0  # Day Shift (index 0 in dropdown)
+    return 0
+
 # --- Upload History ---
 st.markdown("### 📋 Upload History (optional)")
 history_file = st.file_uploader("Upload previous history.csv for repeat tracking", type=['csv'], key="history", help="Max 200MB per file")
@@ -127,8 +134,9 @@ if uploaded_file:
     # Extract date from filename
     report_date = extract_date_from_filename(filename)
     
-    # Let user select shift
-    shift_type = st.selectbox("Select Shift:", ["Day Shift", "Night Shift"])
+    # Auto-detect shift with override option
+    default_shift = detect_shift_from_filename(filename)
+    shift_type = st.selectbox("Select Shift:", ["Day Shift", "Night Shift"], index=default_shift)
     
     st.info(f"📅 Date: **{report_date}** | 🔄 Shift: **{shift_type}**")
     
@@ -381,4 +389,6 @@ st.markdown("3. View results + download report & updated history!")
 st.markdown("### 📐 Criteria:")
 st.markdown("- **Excess** = ≥65 min | **Less** = ≤55 min")
 st.markdown("- Repeat offenders highlighted in red with count")
+
+
 
