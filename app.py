@@ -6,7 +6,6 @@ from datetime import date, timedelta, datetime
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 import re
 
 st.set_page_config(page_title="Break Compliance Report", page_icon="📊", layout="centered")
@@ -87,47 +86,26 @@ def extract_date_from_filename(filename):
     employeeAttendance-DXB3-202607290730-202607291830
     Returns date string like '7/29/2026'
     """
-    # Try FCLM format: employeeAttendance-SITE-YYYYMMDDHHMI-YYYYMMDDHHMI
     match = re.search(r'(\d{8})\d{4}-\d{12}', filename)
     if match:
         date_str = match.group(1)
         dt = datetime.strptime(date_str, '%Y%m%d')
         return f"{dt.month}/{dt.day}/{dt.year}"
     
-    # Try alternate pattern: just find first 8-digit date in filename
     match = re.search(r'(\d{4})(\d{2})(\d{2})', filename)
     if match:
         year, month, day = match.groups()
         dt = datetime(int(year), int(month), int(day))
         return f"{dt.month}/{dt.day}/{dt.year}"
     
-    # Fallback: try date in filename like 2026-07-26
     match = re.search(r'(\d{4})-(\d{2})-(\d{2})', filename)
     if match:
         year, month, day = match.groups()
         dt = datetime(int(year), int(month), int(day))
         return f"{dt.month}/{dt.day}/{dt.year}"
     
-    # Last fallback: yesterday's date
     yesterday = date.today() - timedelta(days=1)
     return f"{yesterday.month}/{yesterday.day}/{yesterday.year}"
-
-# --- Helper: Detect shift from filename ---
-def detect_shift_from_filename(filename):
-    """
-    Detect if Day or Night shift from the time portion of filename.
-    employeeAttendance-DXB3-202607290730-202607291830 → Day (0730 start)
-    employeeAttendance-DXB3-202607291915-202607300515 → Night (1915 start)
-    """
-    match = re.search(r'\d{8}(\d{4})-\d{12}', filename)
-    if match:
-        start_time = match.group(1)
-        hour = int(start_time[:2])
-        if hour >= 18 or hour < 6:
-            return "Night Shift"
-        else:
-            return "Day Shift"
-    return "Day Shift"
 
 # --- Upload History ---
 st.markdown("### 📋 Upload History (optional)")
@@ -146,30 +124,28 @@ if uploaded_file:
     df = pd.read_csv(uploaded_file)
     filename = uploaded_file.name
     
-    # Extract date and shift from filename
+    # Extract date from filename
     report_date = extract_date_from_filename(filename)
-    shift_type = detect_shift_from_filename(filename)
     
-    st.info(f"📅 Date detected: **{report_date}** | 🔄 Shift: **{shift_type}**")
+    # Let user select shift
+    shift_type = st.selectbox("Select Shift:", ["Day Shift", "Night Shift"])
+    
+    st.info(f"📅 Date: **{report_date}** | 🔄 Shift: **{shift_type}**")
     
     # --- Detect format ---
     if 'Punch Time' in df.columns:
         st.info("Detected: **FCLM Raw Punch Data** — calculating breaks from timestamps...")
         
-        # FCLM format processing
         df['Punch Time'] = pd.to_datetime(df['Punch Time'])
         
-        # Group by employee and calculate break
         results = []
         for emp_id, group in df.groupby('Employee ID'):
             punches = group.sort_values('Punch Time')
             emp_name = punches['Employee Name'].iloc[0]
             
-            # If only 2 punches (in/out), break = 0 — skip
             if len(punches) <= 2:
                 continue
             
-            # Calculate break time
             punch_times = punches['Punch Time'].tolist()
             total_break = 0
             
@@ -178,7 +154,6 @@ if uploaded_file:
                 if 0 < break_mins < 120:
                     total_break += break_mins
             
-            # If odd number of punches, try alternative calculation
             if total_break == 0 and len(punch_times) >= 4:
                 break_mins = (punch_times[2] - punch_times[1]).total_seconds() / 60
                 if 0 < break_mins < 120:
@@ -231,7 +206,6 @@ if uploaded_file:
     excess_df['Repeat'] = excess_df['Employee ID'].apply(lambda x: count_repeats(x, 'Excess'))
     less_df['Repeat'] = less_df['Employee ID'].apply(lambda x: count_repeats(x, 'Less'))
     
-    # Format repeat column
     excess_df['Repeat'] = excess_df['Repeat'].apply(lambda x: f"⭐ {x}x" if x > 0 else "")
     less_df['Repeat'] = less_df['Repeat'].apply(lambda x: f"⭐ {x}x" if x > 0 else "")
     
@@ -279,7 +253,6 @@ if uploaded_file:
         ws = wb.active
         ws.title = "Break Compliance"
         
-        # Styles
         header_font = Font(name='Calibri', bold=True, size=14, color='FFFFFF')
         header_fill = PatternFill(start_color='1B2A3B', end_color='1B2A3B', fill_type='solid')
         excess_fill = PatternFill(start_color='FFCDD2', end_color='FFCDD2', fill_type='solid')
@@ -291,7 +264,6 @@ if uploaded_file:
             top=Side(style='thin'), bottom=Side(style='thin')
         )
         
-        # Title
         ws.merge_cells('A1:E1')
         ws['A1'] = 'BREAK COMPLIANCE REPORT'
         ws['A1'].font = header_font
@@ -303,14 +275,12 @@ if uploaded_file:
         ws['A2'].font = Font(name='Calibri', bold=True, size=11)
         ws['A2'].alignment = Alignment(horizontal='center')
         
-        # Metrics
         ws['A3'] = f'Total: {len(excess) + len(less)}'
         ws['B3'] = f'Excess: {len(excess)}'
         ws['C3'] = f'Less: {len(less)}'
         
         row = 5
         
-        # Excess section
         if len(excess) > 0:
             ws.merge_cells(f'A{row}:E{row}')
             ws[f'A{row}'] = 'EXCESS BREAK (≥65 min)'
@@ -338,7 +308,6 @@ if uploaded_file:
         
         row += 1
         
-        # Less section
         if len(less) > 0:
             ws.merge_cells(f'A{row}:E{row}')
             ws[f'A{row}'] = 'LESS BREAK (≤55 min)'
@@ -364,7 +333,7 @@ if uploaded_file:
                     ws.cell(row=row, column=c).fill = fill
                 row += 1
         
-        # Fixed column widths (avoids column_letter error)
+        # Fixed column widths
         ws.column_dimensions['A'].width = 14
         ws.column_dimensions['B'].width = 30
         ws.column_dimensions['C'].width = 14
@@ -412,7 +381,4 @@ st.markdown("3. View results + download report & updated history!")
 st.markdown("### 📐 Criteria:")
 st.markdown("- **Excess** = ≥65 min | **Less** = ≤55 min")
 st.markdown("- Repeat offenders highlighted in red with count")
-
-
-
 
