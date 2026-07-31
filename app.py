@@ -109,9 +109,9 @@ def detect_shift_from_filename(filename):
         start_time = match.group(1)
         hour = int(start_time[:2])
         if hour >= 14:
-            return 1  # Night Shift (index 1 in dropdown)
+            return 1  # Night Shift
         else:
-            return 0  # Day Shift (index 0 in dropdown)
+            return 0  # Day Shift
     return 0
 
 # --- Upload History ---
@@ -214,8 +214,9 @@ if uploaded_file:
     excess_df['Repeat'] = excess_df['Employee ID'].apply(lambda x: count_repeats(x, 'Excess'))
     less_df['Repeat'] = less_df['Employee ID'].apply(lambda x: count_repeats(x, 'Less'))
     
-    excess_df['Repeat'] = excess_df['Repeat'].apply(lambda x: f"⭐ {x}x" if x > 0 else "")
-    less_df['Repeat'] = less_df['Repeat'].apply(lambda x: f"⭐ {x}x" if x > 0 else "")
+    # Format repeat column with ⚠️ triangle
+    excess_df['Repeat'] = excess_df['Repeat'].apply(lambda x: f"⚠️ {x}x" if x > 0 else "")
+    less_df['Repeat'] = less_df['Repeat'].apply(lambda x: f"⚠️ {x}x" if x > 0 else "")
     
     # --- Display Metrics ---
     total = len(excess_df) + len(less_df)
@@ -261,34 +262,46 @@ if uploaded_file:
         ws = wb.active
         ws.title = "Break Compliance"
         
+        # Styles
         header_font = Font(name='Calibri', bold=True, size=14, color='FFFFFF')
         header_fill = PatternFill(start_color='1B2A3B', end_color='1B2A3B', fill_type='solid')
         excess_fill = PatternFill(start_color='FFCDD2', end_color='FFCDD2', fill_type='solid')
         less_fill = PatternFill(start_color='FFF9C4', end_color='FFF9C4', fill_type='solid')
-        repeat_fill = PatternFill(start_color='FFAB91', end_color='FFAB91', fill_type='solid')
+        repeat_fill = PatternFill(start_color='FF8A80', end_color='FF8A80', fill_type='solid')
+        repeat_font = Font(name='Calibri', bold=True, size=11, color='B71C1C')
         col_header_font = Font(name='Calibri', bold=True, size=11)
+        normal_font = Font(name='Calibri', size=11)
         thin_border = Border(
             left=Side(style='thin'), right=Side(style='thin'),
             top=Side(style='thin'), bottom=Side(style='thin')
         )
         
+        # Title Banner
         ws.merge_cells('A1:E1')
         ws['A1'] = 'BREAK COMPLIANCE REPORT'
         ws['A1'].font = header_font
         ws['A1'].fill = header_fill
         ws['A1'].alignment = Alignment(horizontal='center')
+        for col_idx in range(1, 6):
+            ws.cell(row=1, column=col_idx).fill = header_fill
         
+        # Date & Shift
         ws.merge_cells('A2:E2')
         ws['A2'] = f'{report_date} | {shift_type}'
         ws['A2'].font = Font(name='Calibri', bold=True, size=11)
         ws['A2'].alignment = Alignment(horizontal='center')
         
+        # Metrics
         ws['A3'] = f'Total: {len(excess) + len(less)}'
         ws['B3'] = f'Excess: {len(excess)}'
         ws['C3'] = f'Less: {len(less)}'
+        ws['A3'].font = Font(name='Calibri', bold=True, size=11)
+        ws['B3'].font = Font(name='Calibri', bold=True, size=11, color='B71C1C')
+        ws['C3'].font = Font(name='Calibri', bold=True, size=11, color='F57F17')
         
         row = 5
         
+        # --- EXCESS SECTION ---
         if len(excess) > 0:
             ws.merge_cells(f'A{row}:E{row}')
             ws[f'A{row}'] = 'EXCESS BREAK (≥65 min)'
@@ -300,22 +313,35 @@ if uploaded_file:
                 cell = ws.cell(row=row, column=col_idx, value=header)
                 cell.font = col_header_font
                 cell.border = thin_border
+                cell.fill = PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')
             row += 1
             
             for _, r in excess.iterrows():
+                is_repeat = r['Repeat'] != ""
+                
                 ws.cell(row=row, column=1, value=r['Employee ID']).border = thin_border
                 ws.cell(row=row, column=2, value=r['Employee Name']).border = thin_border
                 ws.cell(row=row, column=3, value=r['Department']).border = thin_border
                 ws.cell(row=row, column=4, value=r['Break (min)']).border = thin_border
                 ws.cell(row=row, column=5, value=r['Repeat']).border = thin_border
                 
-                fill = repeat_fill if r['Repeat'] != "" else excess_fill
-                for c in range(1, 6):
-                    ws.cell(row=row, column=c).fill = fill
+                if is_repeat:
+                    # Red highlight for repeat offenders
+                    for c in range(1, 6):
+                        ws.cell(row=row, column=c).fill = repeat_fill
+                        ws.cell(row=row, column=c).font = Font(name='Calibri', bold=True, size=11)
+                    # Repeat column in dark red bold
+                    ws.cell(row=row, column=5).font = repeat_font
+                else:
+                    # Normal excess fill (light red)
+                    for c in range(1, 6):
+                        ws.cell(row=row, column=c).fill = excess_fill
+                        ws.cell(row=row, column=c).font = normal_font
                 row += 1
         
         row += 1
         
+        # --- LESS SECTION ---
         if len(less) > 0:
             ws.merge_cells(f'A{row}:E{row}')
             ws[f'A{row}'] = 'LESS BREAK (≤55 min)'
@@ -327,18 +353,30 @@ if uploaded_file:
                 cell = ws.cell(row=row, column=col_idx, value=header)
                 cell.font = col_header_font
                 cell.border = thin_border
+                cell.fill = PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')
             row += 1
             
             for _, r in less.iterrows():
+                is_repeat = r['Repeat'] != ""
+                
                 ws.cell(row=row, column=1, value=r['Employee ID']).border = thin_border
                 ws.cell(row=row, column=2, value=r['Employee Name']).border = thin_border
                 ws.cell(row=row, column=3, value=r['Department']).border = thin_border
                 ws.cell(row=row, column=4, value=r['Break (min)']).border = thin_border
                 ws.cell(row=row, column=5, value=r['Repeat']).border = thin_border
                 
-                fill = repeat_fill if r['Repeat'] != "" else less_fill
-                for c in range(1, 6):
-                    ws.cell(row=row, column=c).fill = fill
+                if is_repeat:
+                    # Red highlight for repeat offenders
+                    for c in range(1, 6):
+                        ws.cell(row=row, column=c).fill = repeat_fill
+                        ws.cell(row=row, column=c).font = Font(name='Calibri', bold=True, size=11)
+                    # Repeat column in dark red bold
+                    ws.cell(row=row, column=5).font = repeat_font
+                else:
+                    # Normal less fill (light yellow)
+                    for c in range(1, 6):
+                        ws.cell(row=row, column=c).fill = less_fill
+                        ws.cell(row=row, column=c).font = normal_font
                 row += 1
         
         # Fixed column widths
@@ -389,6 +427,4 @@ st.markdown("3. View results + download report & updated history!")
 st.markdown("### 📐 Criteria:")
 st.markdown("- **Excess** = ≥65 min | **Less** = ≤55 min")
 st.markdown("- Repeat offenders highlighted in red with count")
-
-
 
