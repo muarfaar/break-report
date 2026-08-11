@@ -1,20 +1,5 @@
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import date, timedelta, datetime
-from io import BytesIO
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-import re
-
-st.set_page_config(page_title="Break Compliance Report", page_icon="📊", layout="centered")
-
-st.markdown("# 📊 Break Compliance Report")
-st.markdown("Upload attendance CSV → Get formatted report instantly!")
-st.markdown("---")
-
-# --- Department Mapping (Updated 10 Aug 2026 from DXB5 HC) ---
+# Department Mapping (Updated 10 Aug 2026 from DXB5 HC)
 DEPT_MAP = {
     205024567: "ACES", 111018307: "ACES",
     106268180: "DUF7", 102718073: "DUF7", 113139328: "DUF7", 104307248: "DUF7",
@@ -360,6 +345,22 @@ DEPT_MAP = {
     102237456: "XAEC",
 }
 
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import date, timedelta, datetime
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+import re
+from dept_map import DEPT_MAP
+
+st.set_page_config(page_title="Break Compliance Report", page_icon="📊", layout="centered")
+
+st.markdown("# 📊 Break Compliance Report")
+st.markdown("Upload attendance CSV → Get formatted report instantly!")
+st.markdown("---")
+
 # --- Colors (matching desktop report) ---
 SQUID_INK = '232F3E'
 TEAL = '00BCD4'
@@ -538,10 +539,5 @@ if uploaded_file:
     excess_df['Repeat'] = excess_df['Repeat'].apply(lambda x: f"⚠️ {x}x" if x > 0 else "")
     less_df['Repeat'] = less_df['Repeat'].apply(lambda x: f"⚠️ {x}x" if x > 0 else "")
     
-    # --- Display Metrics ---
-    total = len(excess_df) + len(less_df)
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Exceptions", total)
-    col2.metric("Excess (≥65 min)", len(excess_df))
-    col3.metric("Less (≤55 min)", len(less_df))
-    
+    # ---
+
