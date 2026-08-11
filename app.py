@@ -1,4 +1,5 @@
 
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -18,42 +19,70 @@ st.markdown("---")
 # --- Load Department Mapping from Excel file ---
 @st.cache_data
 def load_dept_map():
-    """Load department mapping from the HC Excel file in the same directory."""
+    """Load department mapping from any .xlsx file in the same directory."""
     dept_map = {}
-    # Look for any HC Excel file in the current directory
     hc_file = None
+    
+    # Search for any xlsx file that could be the HC file
     for f in os.listdir('.'):
-        if f.endswith('.xlsx') and 'HC' in f.upper() and 'DEPT' in f.upper():
-            hc_file = f
-            break
+        if f.endswith('.xlsx'):
+            # Match any file with HC or DEPT or employee-related name
+            f_upper = f.upper().replace('_', ' ').replace('-', ' ')
+            if 'HC' in f_upper or 'DEPT' in f_upper or 'HEADCOUNT' in f_upper or 'EMPLOYEE' in f_upper:
+                hc_file = f
+                break
+    
+    # If no match found by name, just use the first xlsx file available
+    if not hc_file:
+        for f in os.listdir('.'):
+            if f.endswith('.xlsx'):
+                hc_file = f
+                break
     
     if hc_file:
         try:
             hc_df = pd.read_excel(hc_file)
-            # Find the Psoft ID and Department columns
+            
+            # Find columns by exact known names first, then fuzzy match
             id_col = None
             dept_col = None
+            
             for col in hc_df.columns:
-                if 'psoft' in col.lower() or 'id' in col.lower():
+                col_lower = col.lower().strip()
+                if col_lower == 'psoft id' or col_lower == 'psoft_id' or col_lower == 'psoftid':
                     id_col = col
-                elif 'dept' in col.lower() or 'department' in col.lower():
+                elif col_lower == 'department' or col_lower == 'dept':
                     dept_col = col
+            
+            # Fallback: fuzzy match
+            if not id_col:
+                for col in hc_df.columns:
+                    if 'psoft' in col.lower() or 'employee id' in col.lower() or col.lower() == 'id':
+                        id_col = col
+                        break
+            
+            if not dept_col:
+                for col in hc_df.columns:
+                    if 'dept' in col.lower() or 'department' in col.lower():
+                        dept_col = col
+                        break
             
             if id_col and dept_col:
                 for _, row in hc_df.iterrows():
                     if pd.notna(row[id_col]) and pd.notna(row[dept_col]):
                         dept_map[int(row[id_col])] = str(row[dept_col])
+                        
         except Exception as e:
-            st.warning(f"Could not load HC file: {e}")
+            st.sidebar.error(f"Error loading HC file '{hc_file}': {e}")
     
-    return dept_map
+    return dept_map, hc_file
 
-DEPT_MAP = load_dept_map()
+DEPT_MAP, hc_filename = load_dept_map()
 
 if DEPT_MAP:
-    st.sidebar.success(f"✅ Loaded {len(DEPT_MAP)} employees from HC file")
+    st.sidebar.success(f"✅ Loaded {len(DEPT_MAP)} employees from: {hc_filename}")
 else:
-    st.sidebar.warning("⚠️ No HC file found. Place your 'HC ... DEPT.xlsx' file in the app directory.")
+    st.sidebar.error("❌ No HC file found. Place any .xlsx file with 'Psoft ID' and 'Department' columns in the app directory.")
 
 # --- Colors (matching desktop report) ---
 SQUID_INK = '232F3E'
